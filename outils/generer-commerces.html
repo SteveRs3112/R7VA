@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Générer la base des commerces – R7VA 2026</title>
+<style>
+:root{--ink:#1b1c2b;--muted:#5d5f74;--line:#dddbee;--bg:#f3f2fa;--card:#fff;--acc:#2b2a8c;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--ink:#eceaf8;--muted:#a8a6c4;--line:#34325c;--bg:#14132a;--card:#1f1e3d;--acc:#c9c4f5;color-scheme:dark}}
+body{font-family:system-ui,Arial,sans-serif;max-width:720px;margin:0 auto;padding:24px;line-height:1.5;background:var(--bg);color:var(--ink)}
+h1{color:var(--acc);margin-top:0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin:14px 0}
+button,a.btn{font:inherit;font-weight:600;border:0;border-radius:8px;padding:10px 16px;background:var(--acc);color:var(--bg);cursor:pointer;text-decoration:none;display:inline-block}
+button:disabled{opacity:.5;cursor:default}
+label{display:block;margin:8px 0}
+input{font:inherit;padding:6px 8px;width:110px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink)}
+#log{font-size:14px;color:var(--muted);white-space:pre-wrap}
+table{border-collapse:collapse;margin-top:8px}td{padding:2px 12px 2px 0}
+</style>
+</head>
+<body>
+<h1>Base des commerces R7VA 2026</h1>
+<p>Cet outil interroge OpenStreetMap et produit le fichier <code>commerces.js</code> intégré à l’appli : bars, supermarchés, boulangeries, stations et pharmacies dans un rayon de 30 km autour de Fruges. L’appli n’a ensuite plus besoin de réseau pour les afficher.</p>
+<div class="card">
+  <label>Latitude du centre <input id="la" value="50.5153"></label>
+  <label>Longitude du centre <input id="lo" value="2.1364"></label>
+  <label>Rayon (km) <input id="rk" value="30"></label>
+  <button id="go">Générer la base</button>
+  <div id="log" style="margin-top:12px"></div>
+  <table id="sum"></table>
+  <p id="dl" hidden style="margin-top:12px"><a class="btn" id="dla" download="commerces.js">Télécharger commerces.js</a></p>
+</div>
+<p>Ensuite : remplacez le fichier <code>commerces.js</code> à la racine de l’appli par celui-ci, puis publiez. Données © contributeurs OpenStreetMap, licence ODbL.</p>
+<script>
+const SERVERS=["https://overpass-api.de/api/interpreter","https://overpass.kumi.systems/api/interpreter","https://overpass.private.coffee/api/interpreter"];
+const KEEP=["name","brand","opening_hours","amenity","shop","phone","contact:phone","addr:housenumber","addr:street","addr:city","ref:FR:prix-carburants"];
+const log=t=>document.getElementById("log").textContent+=t+"\n";
+document.getElementById("go").onclick=async()=>{
+  const b=document.getElementById("go");b.disabled=true;document.getElementById("log").textContent="";document.getElementById("dl").hidden=true;
+  const la=+document.getElementById("la").value,lo=+document.getElementById("lo").value,r=Math.round(+document.getElementById("rk").value*1000);
+  const q=`[out:json][timeout:180];(nwr["amenity"~"^(bar|pub|cafe|biergarten|fuel|pharmacy)$"](around:${r},${la},${lo});nwr["shop"~"^(supermarket|hypermarket|bakery|pastry)$"](around:${r},${la},${lo}););out center tags;`;
+  let data=null;
+  for(const s of SERVERS){
+    log("Interrogation de "+new URL(s).hostname+"…");
+    try{const res=await fetch(s,{method:"POST",body:"data="+encodeURIComponent(q),headers:{"Content-Type":"application/x-www-form-urlencoded"}});
+      if(!res.ok){log("  réponse "+res.status+", serveur suivant");continue;}
+      data=await res.json();break;}catch(e){log("  échec ("+e.message+"), serveur suivant");}
+  }
+  if(!data){log("Aucun serveur n’a répondu. Réessayez dans quelques minutes.");b.disabled=false;return;}
+  const items=[];const cnt={};
+  for(const el of data.elements){
+    const c=el.type==="node"?[el.lat,el.lon]:el.center?[el.center.lat,el.center.lon]:null;if(!c||!el.tags)continue;
+    const t={};KEEP.forEach(k=>{if(el.tags[k])t[k]=el.tags[k];});
+    items.push([el.type+"/"+el.id,+c[0].toFixed(6),+c[1].toFixed(6),t]);
+    const k=t.amenity||t.shop;cnt[k]=(cnt[k]||0)+1;
+  }
+  const at=new Date().toISOString().slice(0,10);
+  const js=`/* Base des commerces – R7VA 2026 – export OpenStreetMap du ${at}, rayon ${r/1000} km autour de ${la}, ${lo}.\n   © contributeurs OpenStreetMap, licence ODbL. */\nwindow.SHOPS_SNAPSHOT = ${JSON.stringify({at,items})};\n`;
+  document.getElementById("sum").innerHTML=Object.entries(cnt).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr><td>${k}</td><td><b>${v}</b></td></tr>`).join("");
+  log(items.length+" lieux récupérés.");
+  const a=document.getElementById("dla");a.href=URL.createObjectURL(new Blob([js],{type:"text/javascript"}));
+  document.getElementById("dl").hidden=false;b.disabled=false;
+};
+</script>
+</body>
+</html>
